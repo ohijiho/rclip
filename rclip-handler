@@ -1,0 +1,10 @@
+#!/bin/sh
+
+(
+  tmpd=/tmp/rclip.CB462B32-16F1-4D49-910D-1151232D6696
+  mkdir -p "$tmpd"
+  p="$tmpd/$(uuidgen)"
+  mkfifo "$p"
+  cat "$p"
+  rm "$p"
+) 2>/dev/null
