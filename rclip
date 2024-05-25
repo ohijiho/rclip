@@ -25,10 +25,15 @@ case "$0" in
 				return 1
 			fi
 		}
-		f ~/.local/bin/rclip || f /opt/rclip/rclip || f ~/repos/simple/rclip/rclip || (
-			echo 'failed to detect rclip executable' >&2
-			exit 1
-		)
+		f ~/.rclip/bin/rclip ||
+			f ~/.local/bin/rclip ||
+			f /usr/local/bin/rclip ||
+			f /opt/rclip/bin/rclip ||
+			f ~/repos/simple/rclip/rclip ||
+			(
+				echo 'failed to detect rclip executable' >&2
+				exit 1
+			)
 	fi
 	exec "$rclip" handler
 	;;
