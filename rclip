@@ -1,4 +1,107 @@
 #!/bin/sh
 
-tmpd=/tmp/rclip.CB462B32-16F1-4D49-910D-1151232D6696
-tee "$tmpd"/* > /dev/null
+set -e
+
+uuid=CB462B32-16F1-4D49-910D-1151232D6696
+
+tmpd="/tmp/rclip.$uuid.$USER"
+lock="$tmpd.lock"
+
+case "$0" in
+*/rclip | rclip) ;;
+*) # the script executed over ssh
+	if which rclip >/dev/null; then
+		rclip=rclip
+	else
+		f() {
+			if [ -f "$1" ]; then
+				rclip="$1"
+			else
+				return 1
+			fi
+		}
+		f ~/.local/bin/rclip || f /opt/rclip/rclip || f ~/repos/simple/rclip/rclip || (
+			echo 'failed to detect rclip executable' >&2
+			exit 1
+		)
+	fi
+	exec "$rclip" handler
+	;;
+esac
+
+if [ "$#" -eq 0 ]; then
+	if [ -d "$tmpd" ] && ls -1 "$tmpd" | grep . >/dev/null; then
+		t="$(mktemp)"
+		cat >"$t"
+		(
+			wc -c <"$t"
+			cat "$t"
+		) | tee "$tmpd"/* >/dev/null
+		rm "$t"
+	fi
+	exit
+fi
+
+case "$1" in
+handler)
+	mkdir -p "$tmpd"
+	p="$tmpd/$(uuidgen)"
+
+	df="$(mktemp -d)"
+	mkfifo "$df/3"
+	mkfifo "$df/4"
+	(
+		exec 3>"$df/3"
+		exec 4<"$df/4"
+
+		read a <&4 || true
+		rm -f "$p"
+	) &
+	exec 3<"$df/3"
+	exec 4>"$df/4"
+	rm -r "$df"
+
+	mkfifo "$p"
+	cat "$p" &
+	exec 7<>"$p"
+
+	read a <&3
+	;;
+clean)
+	rm -rf "$tmpd" "$lock"
+	;;
+ssh)
+	if which xclip >/dev/null; then
+		COPY='xclip -selection c'
+	elif which pbcopy >/dev/null; then
+		COPY='pbcopy'
+	else
+		echo 'failed to detect clipboard cli' >&2
+		exit 1
+	fi
+
+	"$@" "$(<"$0")" | (
+		while read size; do
+			if ![ "$size" -eq "$size" ] >/dev/null; then
+				echo "$size" >&2
+			else
+				head -c"$size" | sh -c "$COPY"
+			fi
+		done
+	)
+	;;
+garbage-collector)
+	exec 3>"$3"
+	while true; do
+		if ! kill -0 "$2" 2>/dev/null; then
+			rm -f "$3"
+			exit
+		fi
+		if ! [ -e "$3" ]; then
+			kill "$2"
+			exit
+		fi
+		sleep 1
+	done
+	;;
+esac
