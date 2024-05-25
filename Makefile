@@ -2,10 +2,35 @@
 
 all: help
 
-d := $(shell if [ "$USER" = root ]; then echo /usr/local; else echo ~/.rclip ; fi)
+d := $(shell \
+	if [ "$USER" = root ]; then \
+		echo /usr/local; \
+	else \
+		echo ~/.rclip ; \
+	fi \
+)
 e := $d/bin/rclip
-x := )
-p := $(shell case "$$SHELL" in zsh | */bin/zsh$x if [ -f ~/.zprofile ]; then echo ~/.zprofile ; else echo ~/.profile ; fi ;; bash | */bin/bash$x if [ -f ~/.bash_profile ]; then echo ~/.bash_profile ; else echo ~/.profile ; fi ;; *$x echo ~/.profile ;; esac)
+p := ${shell \
+	case "$$SHELL" in \
+	zsh | */bin/zsh) \
+		if [ -f ~/.zprofile ]; then \
+			echo ~/.zprofile ;\
+		else \
+			echo ~/.profile ;\
+		fi \
+		;; \
+	bash | */bin/bash) \
+		if [ -f ~/.bash_profile ]; then \
+			echo ~/.bash_profile ; \
+		else \
+			echo ~/.profile ; \
+		fi \
+		;; \
+	*) \
+		echo ~/.profile \
+	;; \
+	esac \
+}
 
 help:
 	@echo "Run 'make install' to install."
