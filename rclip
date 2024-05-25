@@ -4,7 +4,7 @@ set -e
 
 uuid=CB462B32-16F1-4D49-910D-1151232D6696
 
-tmpd="/tmp/rclip.$uuid.$USER"
+tmpd="/tmp/rclip.$uuid.$(whoami)"
 clipfile="$tmpd/clip"
 sigfile="$tmpd/sig"
 bcfile="$tmpd/broadcast"
@@ -142,9 +142,18 @@ daemon-inner) # broadcast daemon
 	exec 4<>"$bcfile"
 
 	while true; do
-		read -u3 -n1 -t1 a || true
+		perl -e '
+      use IO::Select;
+      my $s = IO::Select->new();
+      $s->add(\*STDIN);
+      my $r = $s->can_read(1);
+      if ($r == 0) {
+        exit;
+      }
+      getc(STDIN);
+    ' <&3
 		echo "got signal"
-		if ! [ -f "$did_file" ] || [ "$uuid" != "$(<"$did_file")" ]; then
+		if ! [ -f "$did_file" ] || [ "$uuid" != "$(cat "$did_file")" ]; then
 			echo "exit due to clean"
 			break
 		fi
@@ -156,6 +165,7 @@ daemon-inner) # broadcast daemon
 			break
 		fi
 		exec 4>&-
+		sleep 0
 		exec 4<>"$bcfile"
 	done
 	;;
