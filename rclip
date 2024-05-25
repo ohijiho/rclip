@@ -69,12 +69,12 @@ handler)
 	prepare
 	"$0" daemon &
 	exec perl -e '
-    use Fcntl qw(:flock);
-    $^F = 9;
-    open(my $f, ">&=9") or die "failed to open";
-    flock($f, LOCK_SH) or die "failed to flock";
-    exec '"'$0'"', "handler-inner";
-  ' 9>"$hslk_file"
+		use Fcntl qw(:flock);
+		$^F = 9;
+		open(my $f, ">&=9") or die "failed to open";
+		flock($f, LOCK_SH) or die "failed to flock";
+		exec '"'$0'"', "handler-inner";
+	' 9>"$hslk_file"
 	;;
 handler-inner)
 	cat <"$bcfile" >/dev/null
@@ -125,12 +125,12 @@ daemon)
 	exec >>"$log" 2>&1 </dev/null
 	prepare
 	exec perl -e '
-    use Fcntl qw(:flock);
-    $^F = 9;
-    open(my $f, ">&=9") or die "failed to open daemon lock";
-    flock($f, LOCK_EX | LOCK_NB) or exit;
-    exec '"'$0'"', "daemon-inner";
-  ' 9>"$lock_file"
+		use Fcntl qw(:flock);
+		$^F = 9;
+		open(my $f, ">&=9") or die "failed to open daemon lock";
+		flock($f, LOCK_EX | LOCK_NB) or exit;
+		exec '"'$0'"', "daemon-inner";
+	' 9>"$lock_file"
 	;;
 daemon-inner) # broadcast daemon
 	uuid="$(sh -c "$uuidgen")"
@@ -143,25 +143,25 @@ daemon-inner) # broadcast daemon
 
 	while true; do
 		perl -e '
-      use IO::Select;
-      my $s = IO::Select->new();
-      $s->add(\*STDIN);
-      my $r = $s->can_read(1);
-      if ($r == 0) {
-        exit;
-      }
-      getc(STDIN);
-    ' <&3
+			use IO::Select;
+			my $s = IO::Select->new();
+			$s->add(\*STDIN);
+			my $r = $s->can_read(1);
+			if ($r == 0) {
+				exit;
+			}
+			getc(STDIN);
+		' <&3
 		echo "got signal"
 		if ! [ -f "$did_file" ] || [ "$uuid" != "$(cat "$did_file")" ]; then
 			echo "exit due to clean"
 			break
 		fi
 		if ! perl -e '
-      use Fcntl qw(:flock);
-      open(my $f, ">&=9") or die "failed to open shared lock";
-      flock($f, LOCK_EX | LOCK_NB) and die "no handlers left";
-      ' 9>"$hslk_file"; then
+			use Fcntl qw(:flock);
+			open(my $f, ">&=9") or die "failed to open shared lock";
+			flock($f, LOCK_EX | LOCK_NB) and die "no handlers left";
+			' 9>"$hslk_file"; then
 			break
 		fi
 		exec 4>&-
