@@ -5,7 +5,12 @@ set -e
 uuid=CB462B32-16F1-4D49-910D-1151232D6696
 
 tmpd="/tmp/rclip.$uuid.$USER"
-lock="$tmpd.lock"
+clipfile="$tmpd/clip"
+sigfile="$tmpd/sig"
+bcfile="$tmpd/broadcast"
+lock_file="$tmpd/daemon.lock"
+hslk_file="$tmpd/handlers.shared.lock"
+did_file="$tmpd/daemon.id"
 
 case "$0" in
 */rclip | rclip) ;;
@@ -29,46 +34,64 @@ case "$0" in
 	;;
 esac
 
-if [ "$#" -eq 0 ]; then
-	if [ -d "$tmpd" ] && ls -1 "$tmpd" | grep . >/dev/null; then
-		t="$(mktemp)"
-		cat >"$t"
-		(
-			wc -c <"$t"
-			cat "$t"
-		) | tee "$tmpd"/* >/dev/null
-		rm "$t"
+if which uuidgen >/dev/null; then
+	uuidgen=uuidgen
+elif [ -e /proc/sys/kernel/random/uuid ]; then
+	uuidgen='cat /proc/sys/kernel/random/uuid'
+else
+	uuidgen='echo "$$.$(date)"'
+fi
+
+prepare() {
+	if ! [ -d "$tmpd" ]; then
+		mkdir -p "$tmpd"
+		touch "$clipfile"
+		mkfifo "$sigfile"
+		mkfifo "$bcfile"
 	fi
+}
+
+if [ "$#" -eq 0 ]; then
+	prepare
+	"$0" daemon &
+	cat >"$clipfile"
+	echo >"$sigfile"
 	exit
 fi
 
 case "$1" in
 handler)
-	mkdir -p "$tmpd"
-	p="$tmpd/$(uuidgen)"
+	prepare
+	"$0" daemon &
+	exec perl -e '
+    use Fcntl qw(:flock);
+    $^F = 9;
+    open(my $f, ">&=9") or die "failed to open";
+    flock($f, LOCK_SH) or die "failed to flock";
+    exec '"'$0'"', "handler-inner";
+  ' 9>"$hslk_file"
+	;;
+handler-inner)
+	cat <"$bcfile" >/dev/null
+	uuid="$(<"$did_file")"
 
-	df="$(mktemp -d)"
-	mkfifo "$df/3"
-	mkfifo "$df/4"
-	(
-		exec 3>"$df/3"
-		exec 4<"$df/4"
-
-		read a <&4 || true
-		rm -f "$p"
-	) &
-	exec 3<"$df/3"
-	exec 4>"$df/4"
-	rm -r "$df"
-
-	mkfifo "$p"
-	cat "$p" &
-	exec 7<>"$p"
-
-	read a <&3
+	while true; do
+		if ! [ -f "$did_file" ] || [ "$uuid" != "$(<"$did_file")" ]; then
+			echo >&2 'daemon died'
+			break
+		fi
+		x="$(cksum "$clipfile")"
+		if [ "$cksum" != "$x" ]; then
+			cksum="$x"
+			wc -c <"$clipfile"
+			cat "$clipfile"
+		fi
+		cat <"$bcfile"
+		echo 0
+	done
 	;;
 clean)
-	rm -rf "$tmpd" "$lock"
+	rm -rf "$tmpd"
 	;;
 ssh)
 	if which xclip >/dev/null; then
@@ -82,26 +105,53 @@ ssh)
 
 	"$@" "$(<"$0")" | (
 		while read size; do
-			if ![ "$size" -eq "$size" ] >/dev/null; then
+			if [ "$size" -ne "$size" ] 2>/dev/null; then
 				echo "$size" >&2
 			else
-				head -c"$size" | sh -c "$COPY"
+				if [ "$size" -ne 0 ]; then
+					head -c"$size" | sh -c "$COPY"
+				fi
 			fi
 		done
 	)
 	;;
-garbage-collector)
-	exec 3>"$3"
+daemon)
+	log="$tmpd/daemon.log"
+	exec >>"$log" 2>&1 </dev/null
+	prepare
+	exec perl -e '
+    use Fcntl qw(:flock);
+    $^F = 9;
+    open(my $f, ">&=9") or die "failed to open daemon lock";
+    flock($f, LOCK_EX | LOCK_NB) or exit;
+    exec '"'$0'"', "daemon-inner";
+  ' 9>"$lock_file"
+	;;
+daemon-inner) # broadcast daemon
+	uuid="$(sh -c "$uuidgen")"
+	echo "$uuid" >"$did_file"
+
+	echo "daemon started: $uuid"
+
+	exec 3<>"$sigfile"
+	exec 4<>"$bcfile"
+
 	while true; do
-		if ! kill -0 "$2" 2>/dev/null; then
-			rm -f "$3"
-			exit
+		read -u3 -n1 -t1 a || true
+		echo "got signal"
+		if ! [ -f "$did_file" ] || [ "$uuid" != "$(<"$did_file")" ]; then
+			echo "exit due to clean"
+			break
 		fi
-		if ! [ -e "$3" ]; then
-			kill "$2"
-			exit
+		if ! perl -e '
+      use Fcntl qw(:flock);
+      open(my $f, ">&=9") or die "failed to open shared lock";
+      flock($f, LOCK_EX | LOCK_NB) and die "no handlers left";
+      ' 9>"$hslk_file"; then
+			break
 		fi
-		sleep 1
+		exec 4>&-
+		exec 4<>"$bcfile"
 	done
 	;;
 esac
